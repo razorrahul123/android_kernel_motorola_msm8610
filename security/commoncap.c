@@ -98,7 +98,7 @@ int cap_capable(const struct cred *cred, struct user_namespace *targ_ns,
 			return 0;
 
 		/* Do we have the necessary capabilities? */
-		if (targ_ns == cred->user_ns)
+		if (targ_ns == cred->user->user_ns)
 			return cap_raised(cred->cap_effective, cap) ? 0 : -EPERM;
 
 		/* Have we tried all of the parent namespaces? */
@@ -109,7 +109,7 @@ int cap_capable(const struct cred *cred, struct user_namespace *targ_ns,
 		 *If you have a capability in a parent user ns, then you have
 		 * it over all children user namespaces as well.
 		 */
-		targ_ns = targ_ns->parent;
+		targ_ns = targ_ns->creator->user_ns;
 	}
 
 	/* We never get here */
@@ -153,10 +153,10 @@ int cap_ptrace_access_check(struct task_struct *child, unsigned int mode)
 	rcu_read_lock();
 	cred = current_cred();
 	child_cred = __task_cred(child);
-	if (cred->user_ns == child_cred->user_ns &&
+	if (cred->user->user_ns == child_cred->user->user_ns &&
 	    cap_issubset(child_cred->cap_permitted, cred->cap_permitted))
 		goto out;
-	if (ns_capable(child_cred->user_ns, CAP_SYS_PTRACE))
+	if (ns_capable(child_cred->user->user_ns, CAP_SYS_PTRACE))
 		goto out;
 	ret = -EPERM;
 out:
@@ -185,10 +185,10 @@ int cap_ptrace_traceme(struct task_struct *parent)
 	rcu_read_lock();
 	cred = __task_cred(parent);
 	child_cred = current_cred();
-	if (cred->user_ns == child_cred->user_ns &&
+	if (cred->user->user_ns == child_cred->user->user_ns &&
 	    cap_issubset(child_cred->cap_permitted, cred->cap_permitted))
 		goto out;
-	if (has_ns_capability(parent, child_cred->user_ns, CAP_SYS_PTRACE))
+	if (has_ns_capability(parent, child_cred->user->user_ns, CAP_SYS_PTRACE))
 		goto out;
 	ret = -EPERM;
 out:
@@ -231,7 +231,7 @@ static inline int cap_inh_is_capped(void)
 	/* they are so limited unless the current task has the CAP_SETPCAP
 	 * capability
 	 */
-	if (cap_capable(current_cred(), current_cred()->user_ns,
+	if (cap_capable(current_cred(), current_cred()->user->user_ns,
 			CAP_SETPCAP, SECURITY_CAP_AUDIT) == 0)
 		return 0;
 	return 1;
@@ -279,16 +279,6 @@ int cap_capset(struct cred *new,
 	new->cap_effective   = *effective;
 	new->cap_inheritable = *inheritable;
 	new->cap_permitted   = *permitted;
-
-	/*
-	 * Mask off ambient bits that are no longer both permitted and
-	 * inheritable.
-	 */
-	new->cap_ambient = cap_intersect(new->cap_ambient,
-					 cap_intersect(*permitted,
-						       *inheritable));
-	if (WARN_ON(!cap_ambient_invariant_ok(new)))
-		return -EINVAL;
 	return 0;
 }
 
@@ -369,7 +359,6 @@ static inline int bprm_caps_from_vfs_caps(struct cpu_vfs_cap_data *caps,
 
 		/*
 		 * pP' = (X & fP) | (pI & fI)
-		 * The addition of pA' is handled later.
 		 */
 		new->cap_permitted.cap[i] =
 			(new->cap_bset.cap[i] & permitted) |
@@ -498,11 +487,8 @@ int cap_bprm_set_creds(struct linux_binprm *bprm)
 {
 	const struct cred *old = current_cred();
 	struct cred *new = bprm->cred;
-	bool effective, has_cap = false, is_setid;
+	bool effective, has_cap = false;
 	int ret;
-
-	if (WARN_ON(!cap_ambient_invariant_ok(old)))
-		return -EPERM;
 
 	effective = false;
 	ret = get_file_caps(bprm, &effective, &has_cap);
@@ -546,9 +532,8 @@ skip:
 	 *
 	 * In addition, if NO_NEW_PRIVS, then ensure we get no new privs.
 	 */
-	is_setid = new->euid != old->uid || new->egid != old->gid;
-
-	if ((is_setid ||
+	if ((new->euid != old->uid ||
+	     new->egid != old->gid ||
 	     !cap_issubset(new->cap_permitted, old->cap_permitted)) &&
 	    bprm->unsafe & ~LSM_UNSAFE_PTRACE_CAP) {
 		/* downgrade; they get no more than they had, and maybe less */
@@ -564,28 +549,10 @@ skip:
 	new->suid = new->fsuid = new->euid;
 	new->sgid = new->fsgid = new->egid;
 
-	/* File caps or setid cancels ambient. */
-	if (has_cap || is_setid)
-		cap_clear(new->cap_ambient);
-
-	/*
-	 * Now that we've computed pA', update pP' to give:
-	 *   pP' = (X & fP) | (pI & fI) | pA'
-	 */
-	new->cap_permitted = cap_combine(new->cap_permitted, new->cap_ambient);
-
-	/*
-	 * Set pE' = (fE ? pP' : pA').  Because pA' is zero if fE is set,
-	 * this is the same as pE' = (fE ? pP' : 0) | pA'.
-	 */
 	if (effective)
 		new->cap_effective = new->cap_permitted;
 	else
-		new->cap_effective = new->cap_ambient;
-
-	if (WARN_ON(!cap_ambient_invariant_ok(new)))
-		return -EPERM;
-
+		cap_clear(new->cap_effective);
 	bprm->cap_effective = effective;
 
 	/*
@@ -600,7 +567,7 @@ skip:
 	 * Number 1 above might fail if you don't have a full bset, but I think
 	 * that is interesting information to audit.
 	 */
-	if (!cap_issubset(new->cap_effective, new->cap_ambient)) {
+	if (!cap_isclear(new->cap_effective)) {
 		if (!cap_issubset(CAP_FULL_SET, new->cap_effective) ||
 		    new->euid != 0 || new->uid != 0 ||
 		    issecure(SECURE_NOROOT)) {
@@ -611,10 +578,6 @@ skip:
 	}
 
 	new->securebits &= ~issecure_mask(SECURE_KEEP_CAPS);
-
-	if (WARN_ON(!cap_ambient_invariant_ok(new)))
-		return -EPERM;
-
 	return 0;
 }
 
@@ -635,7 +598,7 @@ int cap_bprm_secureexec(struct linux_binprm *bprm)
 	if (cred->uid != 0) {
 		if (bprm->cap_effective)
 			return 1;
-		if (!cap_issubset(cred->cap_permitted, cred->cap_ambient))
+		if (!cap_isclear(cred->cap_permitted))
 			return 1;
 	}
 
@@ -731,17 +694,10 @@ int cap_inode_removexattr(struct dentry *dentry, const char *name)
 static inline void cap_emulate_setxuid(struct cred *new, const struct cred *old)
 {
 	if ((old->uid == 0 || old->euid == 0 || old->suid == 0) &&
-	    (new->uid != 0 && new->euid != 0 && new->suid != 0)) {
-		if (!issecure(SECURE_KEEP_CAPS)) {
-			cap_clear(new->cap_permitted);
-			cap_clear(new->cap_effective);
-		}
-		/*
-		 * Pre-ambient programs expect setresuid to nonroot followed
-		 * by exec to drop capabilities.  We should make sure that
-		 * this remains the case.
-		 */
-		cap_clear(new->cap_ambient);
+	    (new->uid != 0 && new->euid != 0 && new->suid != 0) &&
+	    !issecure(SECURE_KEEP_CAPS)) {
+		cap_clear(new->cap_permitted);
+		cap_clear(new->cap_effective);
 	}
 	if (old->euid == 0 && new->euid != 0)
 		cap_clear(new->cap_effective);
@@ -930,7 +886,7 @@ int cap_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 		    || ((old->securebits & SECURE_ALL_LOCKS & ~arg2))	/*[2]*/
 		    || (arg2 & ~(SECURE_ALL_LOCKS | SECURE_ALL_BITS))	/*[3]*/
 		    || (cap_capable(current_cred(),
-				    current_cred()->user_ns, CAP_SETPCAP,
+				    current_cred()->user->user_ns, CAP_SETPCAP,
 				    SECURITY_CAP_AUDIT) != 0)		/*[4]*/
 			/*
 			 * [1] no changing of bits that are locked
@@ -969,43 +925,6 @@ int cap_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 		else
 			new->securebits &= ~issecure_mask(SECURE_KEEP_CAPS);
 		return commit_creds(new);
-
-	case PR_CAP_AMBIENT:
-		if (arg2 == PR_CAP_AMBIENT_CLEAR_ALL) {
-			if (arg3 | arg4 | arg5)
-				return -EINVAL;
-
-			new = prepare_creds();
-			if (!new)
-				return -ENOMEM;
-			cap_clear(new->cap_ambient);
-			return commit_creds(new);
-		}
-
-		if (((!cap_valid(arg3)) | arg4 | arg5))
-			return -EINVAL;
-
-		if (arg2 == PR_CAP_AMBIENT_IS_SET) {
-			return !!cap_raised(current_cred()->cap_ambient, arg3);
-		} else if (arg2 != PR_CAP_AMBIENT_RAISE &&
-			   arg2 != PR_CAP_AMBIENT_LOWER) {
-			return -EINVAL;
-		} else {
-			if (arg2 == PR_CAP_AMBIENT_RAISE &&
-			    (!cap_raised(current_cred()->cap_permitted, arg3) ||
-			     !cap_raised(current_cred()->cap_inheritable,
-					 arg3)))
-				return -EPERM;
-
-			new = prepare_creds();
-			if (!new)
-				return -ENOMEM;
-			if (arg2 == PR_CAP_AMBIENT_RAISE)
-				cap_raise(new->cap_ambient, arg3);
-			else
-				cap_lower(new->cap_ambient, arg3);
-			return commit_creds(new);
-		}
 
 	default:
 		/* No functionality available - continue with default */
