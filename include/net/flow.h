@@ -10,6 +10,7 @@
 #include <linux/socket.h>
 #include <linux/in6.h>
 #include <linux/atomic.h>
+#include <linux/uidgid.h>
 
 /*
  * ifindex generation is per-net namespace, and loopback is
@@ -31,7 +32,11 @@ struct flowi_common {
 #define FLOWI_FLAG_PRECOW_METRICS	0x02
 #define FLOWI_FLAG_CAN_SLEEP		0x04
 	__u32	flowic_secid;
+<<<<<<< HEAD
 	uid_t	flowic_uid;
+=======
+	kuid_t  flowic_uid;
+>>>>>>> 26fa237... net: core: add UID to flows, rules, and routes
 };
 
 union flowi_uli {
