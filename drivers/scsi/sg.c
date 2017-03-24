@@ -174,6 +174,7 @@ typedef struct sg_device { /* holds the state of each scsi generic device */
 	struct scsi_device *device;
 	struct mutex open_rel_lock;
 	wait_queue_head_t o_excl_wait;	/* queue open() when O_EXCL in use */
+	struct mutex open_rel_lock;	/* held when in open() or release() */
 	int sg_tablesize;	/* adapter's max scatter-gather table size */
 	u32 index;		/* device index number */
 	struct list_head sfds;
@@ -932,8 +933,8 @@ sg_ioctl(struct file *filp, unsigned int cmd_in, unsigned long arg)
 		result = get_user(val, ip);
 		if (result)
 			return result;
-                if (val < 0)
-                        return -EINVAL;
+		if (val < 0)
+			return -EINVAL;
 		val = min_t(int, val,
 			    queue_max_sectors(sdp->device->request_queue) * 512);
 		if (val != sfp->reserve.bufflen) {
