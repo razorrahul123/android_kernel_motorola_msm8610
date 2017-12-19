@@ -26,8 +26,6 @@
 		reg-names = "csiphy", "csiphy_clk_mux";
 		interrupts = <0 78 0>;
 		interrupt-names = "csiphy";
-		qcom,csi-vdd-voltage = <1800000>;
-		qcom,mipi-csi-vdd-supply = <&pm8941_l12>;
 	};
 
 	qcom,csiphy@fda0b000 {
@@ -38,8 +36,6 @@
 		reg-names = "csiphy", "csiphy_clk_mux";
 		interrupts = <0 79 0>;
 		interrupt-names = "csiphy";
-		qcom,csi-vdd-voltage = <1800000>;
-		qcom,mipi-csi-vdd-supply = <&pm8941_l12>;
 	};
 
 	qcom,csiphy@fda0b400 {
@@ -50,8 +46,6 @@
 		reg-names = "csiphy", "csiphy_clk_mux";
 		interrupts = <0 80 0>;
 		interrupt-names = "csiphy";
-		qcom,csi-vdd-voltage = <1800000>;
-		qcom,mipi-csi-vdd-supply = <&pm8941_l12>;
 	};
 
 	qcom,csid@fda08000  {
