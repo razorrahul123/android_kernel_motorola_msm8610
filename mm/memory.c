@@ -1456,8 +1456,7 @@ EXPORT_SYMBOL_GPL(zap_vma_ptes);
  * FOLL_FORCE can write to even unwritable pte's, but only
  * after we've gone through a COW cycle and they are dirty.
  */
-/*
- * Commented from merging 3.4.y android-linux-stable
+/* Commented from merging 3.4.y android-linux-stable
 static inline bool can_follow_write_pte(pte_t pte, unsigned int flags)
 {
 	return pte_write(pte) ||
@@ -1563,8 +1562,8 @@ split_fallthrough:
 	pte = *ptep;
 	if (!pte_present(pte))
 		goto no_page;
-	if ((flags & FOLL_WRITE) && !can_follow_write_pte(pte, flags))
-		goto unlock;
+	//if ((flags & FOLL_WRITE) && !can_follow_write_pte(pte, page, flags))
+	//	goto unlock;
 	page = vm_normal_page(vma, address, pte);
 	if ((flags & FOLL_WRITE) && !can_follow_write_pte(pte, page, flags)) {
 		pte_unmap_unlock(ptep, ptl);
