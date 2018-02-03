@@ -650,6 +650,12 @@ CHECKFLAGS     += $(NOSTDINC_FLAGS)
 # warn about C99 declaration after statement
 KBUILD_CFLAGS += $(call cc-option,-Wdeclaration-after-statement,)
 
+# Disable format-truncation warnings
+KBUILD_CFLAGS  += $(call cc-disable-warning, format-truncation,)
+
+# Needed to unbreak GCC 7.x and above
+KBUILD_CFLAGS  += $(call cc-option, -fno-store-merging,)
+
 # disable pointer signed / unsigned warnings in gcc 4.0
 KBUILD_CFLAGS += $(call cc-disable-warning, pointer-sign)
 
