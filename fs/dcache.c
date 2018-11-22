@@ -1048,6 +1048,7 @@ void shrink_dcache_for_umount(struct super_block *sb)
 	}
 }
 
+
 /*
  * Search for at least 1 mount point in the dentry's subdirs.
  * We descend to the next level whenever the d_subdirs
@@ -2611,7 +2612,7 @@ global_root:
 	if (!slash)
 		error = prepend(buffer, buflen, "/", 1);
 	if (!error)
-		error = is_mounted(vfsmnt) ? 1 : 2;
+		error = real_mount(vfsmnt)->mnt_ns ? 1 : 2;
 	return error;
 }
 
