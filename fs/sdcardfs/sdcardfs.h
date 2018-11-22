@@ -411,53 +411,6 @@ static inline void set_top(struct sdcardfs_inode_info *info,
 		data_put(old_top);
 }
 
-static inline int get_gid(struct vfsmount *mnt,
-		struct sdcardfs_inode_data *data)
-{
-	struct sdcardfs_vfsmount_options *opts = mnt->data;
-
-	if (opts->gid == AID_SDCARD_RW)
-		/* As an optimization, certain trusted system components only run
-		 * as owner but operate across all users. Since we're now handing
-		 * out the sdcard_rw GID only to trusted apps, we're okay relaxing
-		 * the user boundary enforcement for the default view. The UIDs
-		 * assigned to app directories are still multiuser aware.
-		 */
-		return AID_SDCARD_RW;
-	else
-		return multiuser_get_uid(data->userid, opts->gid);
-}
-
-static inline int get_mode(struct vfsmount *mnt,
-		struct sdcardfs_inode_info *info,
-		struct sdcardfs_inode_data *data)
-{
-	int owner_mode;
-	int filtered_mode;
-	struct sdcardfs_vfsmount_options *opts = mnt->data;
-	int visible_mode = 0775 & ~opts->mask;
-
-
-	if (data->perm == PERM_PRE_ROOT) {
-		/* Top of multi-user view should always be visible to ensure
-		* secondary users can traverse inside.
-		*/
-		visible_mode = 0711;
-	} else if (data->under_android) {
-		/* Block "other" access to Android directories, since only apps
-		* belonging to a specific user should be in there; we still
-		* leave +x open for the default view.
-		*/
-		if (opts->gid == AID_SDCARD_RW)
-			visible_mode = visible_mode & ~0006;
-		else
-			visible_mode = visible_mode & ~0007;
-	}
-	owner_mode = info->lower_inode->i_mode & 0700;
-	filtered_mode = visible_mode & (owner_mode | (owner_mode >> 3) | (owner_mode >> 6));
-	return filtered_mode;
-}
-
 static inline int has_graft_path(const struct dentry *dent)
 {
 	int ret = 0;
